@@ -1,21 +1,22 @@
-import typer
-import zipfile
-import yaml
-import xml.etree.cElementTree as ET
+import os
 import glob
+import yaml
+import zipfile
+import typer
+import xml.etree.ElementTree as ET
 
 app = typer.Typer()
 
-def generateMetadata(path:str):
+def generateMetadata(path: str):
     ext = '*.cbz'
-    for file in glob.glob(path + '/' + ext):
+    for file in glob.glob(os.path.join(path, ext)):
         print(f"Started doing {file}")
 
         # Extract info.yaml from the ZIP file
-        with zipfile.ZipFile(file) as zip:
+        with zipfile.ZipFile(file, 'r') as zip:
             with zip.open('info.yaml') as f:
                 data = yaml.safe_load(f)
-            
+
         # Create ComicInfo XML structure
         ComicInfo = ET.Element("ComicInfo")
         Count = ET.SubElement(ComicInfo, "Count")
@@ -34,12 +35,13 @@ def generateMetadata(path:str):
                     Count.text = str(data[key])
 
         # Write ComicInfo to XML file
+        xml_file_path = os.path.join(path, "ComicInfo.xml")
         tree = ET.ElementTree(ComicInfo)
-        tree.write(f"{path}/ComicInfo.xml")
+        tree.write(xml_file_path)
 
         # Update the ZIP file with the new metadata XML
         with zipfile.ZipFile(file, 'a', zipfile.ZIP_DEFLATED) as z:
-            z.write(f"{path}/ComicInfo.xml")
+            z.write(xml_file_path, "/ComicInfo.xml")
 
 @app.command()
 def main(
