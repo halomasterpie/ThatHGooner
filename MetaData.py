@@ -1,65 +1,68 @@
-import zipfile
+import os
+import glob
 import yaml
-import xml.etree.cElementTree as ET
-from pathlib import Path
+import zipfile
+import typer
+import xml.etree.ElementTree as ET
+from zipfile import BadZipFile
 
-def generateMetaData(fname):
-    ComicInfo = ET.Element("ComicInfo")
-    Count = ET.SubElement(ComicInfo, "Count")
-    Writer = ET.SubElement(ComicInfo, "Writer")
-    Title = ET.SubElement(ComicInfo, "Title")
-    Tags = ET.SubElement(ComicInfo, "Tags")
-    metaData = "ComicInfo.xml"
+app = typer.Typer()
 
-    print("Opening: " + str(fname))
+def generateMetadata(path: str):
+    ext = '*.cbz'
+    badFile = []
+    for file in glob.glob(os.path.join(path, ext)):
+        print(f"Started doing {file}...", end='\t')
 
-    with zipfile.ZipFile(fname) as z:
-        with open('info.yaml', 'wb') as f:
-            f.write(z.read('info.yaml'))
+        try:
+            # Extract info.yaml from the ZIP file
+            with zipfile.ZipFile(file, 'r') as zip:
+                if 'ComicInfo.xml' in zip.namelist():
+                    print(" Skipped")
+                    continue
 
-    with open('info.yaml') as f:
-        result = yaml.safe_load(f)
+                with zip.open('info.yaml') as f:
+                    data = yaml.safe_load(f)
 
-    stream = open('info.yaml', 'r')
-    data = yaml.safe_load(stream)
+            # Create ComicInfo XML structure
+            ComicInfo = ET.Element("ComicInfo")
+            Count = ET.SubElement(ComicInfo, "Count")
+            Writer = ET.SubElement(ComicInfo, "Writer")
+            Title = ET.SubElement(ComicInfo, "Title")
+            Tags = ET.SubElement(ComicInfo, "Tags")
 
-    def find(d, tag):
-        if tag in d:
-            yield d[tag]
-        for k, v in d.items():
-            if isinstance(v, dict):
-                for i in find(v, tag):
-                    yield i
+            # Extract and process metadata from info.yaml
+            for key in ['Title', 'Artist', 'Tags', 'Pages']:
+                if key in data:
+                    if key == 'Title':
+                        Title.text = str(data[key])
+                    elif key == 'Artist' or key == 'Tags':
+                        Writer.text = ', '.join(map(str, data[key]))
+                    elif key == 'Pages':
+                        Count.text = str(data[key])
 
-    for val in find(data, 'Title'):
-        Title.text = str(val)
+            # Write ComicInfo to XML file
+            xml_file_path = os.path.join(path, "ComicInfo.xml")
+            tree = ET.ElementTree(ComicInfo)
+            tree.write(xml_file_path)
 
-    for val in find(data, 'Artist'):
-        str_val = str(val)
-        new_val1 = str_val.replace("[", "")
-        new_val2 = new_val1.replace("'", "")
-        new_val3 = new_val2.replace("]", "")
-        Writer.text = new_val3
+            # Update the ZIP file with the new metadata XML
+            with zipfile.ZipFile(file, 'a', zipfile.ZIP_DEFLATED) as z:
+                z.write(xml_file_path, "/ComicInfo.xml")
+            print(" Done")
+        except BadZipFile:
+            print(" Bad Zip File")
+            badFile.append(file)
 
-    for val in find(data, 'Tags'):
-        str_val = str(val)
-        new_val1 = str_val.replace("[", "")
-        new_val2 = new_val1.replace("'", "")
-        new_val3 = new_val2.replace("]", "")
-        Tags.text = new_val3
+    return badFile
 
-    for val in find(data, 'Pages'):
-        Count.text = str(val)
 
-    tree = ET.ElementTree(ComicInfo)
-    tree.write("ComicInfo.xml")
+@app.command()
+def main(
+    path: str = '.'
+):
+    for file in generateMetadata(path):
+        print(file)
 
-    ziptest = zipfile.ZipFile(fname, 'a', zipfile.ZIP_DEFLATED)
-    ziptest.write(metaData)
-    ziptest.close()
-
-    print("Converted metadata for: " + str(fname))
-
-my_dir = Path("D:/ANIYOMI/Anchira")
-for file in my_dir.glob('*.cbz'):
-    generateMetaData(file)
+if __name__ == '__main__':
+    typer.run(main)
